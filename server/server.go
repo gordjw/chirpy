@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type config struct {
@@ -14,20 +16,27 @@ func Run() {
 	host := "localhost"
 	port := 8080
 
-	mux := http.NewServeMux()
-	chirpyMux := middlewareCors(mux)
-
 	config := config{
 		fileServerHits: 0,
 	}
 
-	// mux.HandleFunc("/", response404)
-	mux.HandleFunc("/healthz", responseHealthz)
-	mux.HandleFunc("/metrics", config.responseMetrics)
-	mux.HandleFunc("/reset", config.responseReset)
-	mux.Handle("/app/", http.StripPrefix("/app", config.middlewareHitCounter(http.FileServer(http.Dir("./public")))))
+	adminRouter := chi.NewRouter()
+	adminRouter.Use(middlewareCors)
+	adminRouter.Get("/metrics", config.responseMetrics)
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", host, port), chirpyMux))
+	apiRouter := chi.NewRouter()
+	apiRouter.Use(middlewareCors)
+	apiRouter.Get("/healthz", responseHealthz)
+	apiRouter.Get("/reset", config.responseReset)
+
+	r := chi.NewRouter()
+	r.Use(middlewareCors)
+	r.Handle("/app/*", http.StripPrefix("/app", config.middlewareHitCounter(http.FileServer(http.Dir("./public")))))
+	r.Handle("/app", http.StripPrefix("/app", config.middlewareHitCounter(http.FileServer(http.Dir("./public")))))
+	r.Mount("/admin", adminRouter)
+	r.Mount("/api", apiRouter)
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", host, port), r))
 }
 
 func middlewareCors(next http.Handler) http.Handler {
